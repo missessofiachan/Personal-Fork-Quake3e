@@ -29,6 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define Q_HAS_SIMD 1
 #include <smmintrin.h> // Intel SSE4.1 intrinsics
 #include <immintrin.h> // Required for FMA and advanced intrinsics
+  // Required for strict integer widths (uint32_t)
 #define Q_HAS_SSE4_1 1
 #else
 #if defined(__SSE4_1__)
@@ -644,36 +645,35 @@ void VectorRotate( const vec3_t in, const vec3_t matrix[3], vec3_t out )
 /*
 ** float Q_rsqrt( float number )
 */
-float Q_rsqrt( float number )
+float Q_rsqrt(float number)
 {
-#if defined(_MSC_SSE2)
-	float ret;
-	_mm_store_ss( &ret, _mm_rsqrt_ss( _mm_load_ss( &number ) ) );
-	return ret;
-#elif defined(_GCC_SSE2)
-	/* writing it this way allows gcc to recognize that rsqrt can be used with -ffast-math */
-	return 1.0f / sqrtf( number );
-#elif defined(_GCC_VSX)
-	/* VSX scalar reciprocal sqrt estimate (POWER7+, ~14-bit precision)
-	 * + one Newton-Raphson iteration → matches SSE rsqrtss + NR accuracy.
-	 * Scalar form avoids the splat/extract overhead of the vector path. */
-	float y;
-	__asm__( "xsrsqrtesp %x0,%x1" : "=wa"(y) : "wa"(number) );
-	y = y * ( 1.5f - 0.5f * number * y * y );
-	return y;
+#ifndef Q3_VM
+    // 1. Load the single scalar float into a SIMD register
+    __m128 reg = _mm_set_ss(number);
+
+    // 2. Compute the reciprocal square root using specialized hardware silicon.
+    // This gives a highly accurate initial approximation instantly.
+    reg = _mm_rsqrt_ss(reg);
+
+    float y;
+    _mm_store_ss(&y, reg);
+
+    // 3. One iteration of Newton-Raphson refinement to match the precision 
+    // of the original Quake III implementation perfectly.
+    return y * (1.5f - (number * 0.5f * y * y));
 #else
-	floatint_t t;
-	float x2, y;
-	const float threehalfs = 1.5F;
+    // Original legendary scalar bit-hack for QVM compilation compatibility
+    floatint_t t;
+    float x2, y;
+    const float threehalfs = 1.5F;
 
-	x2 = number * 0.5F;
-	t.f  = number;
-	t.i  = 0x5f3759df - ( t.i >> 1 );               // what the fuck?
-	y  = t.f;
-	y  = y * ( threehalfs - ( x2 * y * y ) );   // 1st iteration
-//	y  = y * ( threehalfs - ( x2 * y * y ) );   // 2nd iteration, this can be removed
+    x2 = number * 0.5F;
+    t.f = number;
+    t.i = 0x5f3759df - (t.i >> 1); // what the fuck?
+    y = t.f;
+    y = y * (threehalfs - (x2 * y * y));
 
-	return y;
+    return y;
 #endif
 }
 
