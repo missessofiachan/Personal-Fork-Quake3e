@@ -1047,6 +1047,24 @@ qboolean BoundsIntersectSphere(const vec3_t mins, const vec3_t maxs,
 qboolean BoundsIntersectPoint(const vec3_t mins, const vec3_t maxs,
 		const vec3_t origin)
 {
+	#ifndef Q3_VM
+    __m128 v_mins   = _mm_set_ps(0.0f, mins[2],   mins[1],   mins[0]);
+    __m128 v_maxs   = _mm_set_ps(0.0f, maxs[2],   maxs[1],   maxs[0]);
+    __m128 v_origin = _mm_set_ps(0.0f, origin[2], origin[1], origin[0]);
+
+    // Check if the origin point escapes the bounds on any axis
+    __m128 cmp1 = _mm_cmpgt_ps(v_origin, v_maxs); // origin > maxs
+    __m128 cmp2 = _mm_cmplt_ps(v_origin, v_mins); // origin < mins
+
+    int mask = _mm_movemask_ps(_mm_or_ps(cmp1, cmp2));
+
+    if (mask & 7)
+    {
+        return qfalse;
+    }
+
+    return qtrue;
+	#else
 	if ( origin[0] > maxs[0] ||
 		origin[0] < mins[0] ||
 		origin[1] > maxs[1] ||
@@ -1058,6 +1076,7 @@ qboolean BoundsIntersectPoint(const vec3_t mins, const vec3_t maxs,
 	}
 
 	return qtrue;
+	#endif
 }
 
 vec_t VectorNormalize( vec3_t v ) {
