@@ -1079,23 +1079,50 @@ qboolean BoundsIntersectPoint(const vec3_t mins, const vec3_t maxs,
 	#endif
 }
 
-vec_t VectorNormalize( vec3_t v ) {
-	// NOTE: TTimo - Apple G4 altivec source uses double?
-	float	length, ilength;
+vec_t VectorNormalize(vec3_t v)
+{
+#ifndef Q3_VM
+    // 1. Load the 3 floats (safely padding the 4th element with 0.0f)
+    __m128 x = _mm_set_ps(0.0f, v[2], v[1], v[0]);
 
-	length = v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
+    // 2. Compute dot product of the vector with itself (X^2 + Y^2 + Z^2)
+    // 0x77 mask: Multiply slots 0,1,2 and broadcast the sum to ALL slots of 'sum'
+    __m128 sum = _mm_dp_ps(x, x, 0x77);
 
-	if ( length ) {
-		/* writing it this way allows gcc to recognize that rsqrt can be used */
-		ilength = 1/(float)sqrt (length);
-		/* sqrt(length) = length * (1 / sqrt(length)) */
-		length *= ilength;
-		v[0] *= ilength;
-		v[1] *= ilength;
-		v[2] *= ilength;
-	}
-		
-	return length;
+    float length;
+    _mm_store_ss(&length, sum);
+
+    if (length > 0.0f) 
+    {
+        // 3. Take the square root of the sum
+        __m128 sqrt_len = _mm_sqrt_ps(sum);
+
+        // Extract the actual float length to return later
+        _mm_store_ss(&length, sqrt_len);
+
+        // 4. Divide the original vector components by the calculated length
+        __m128 norm = _mm_div_ps(x, sqrt_len);
+
+        // 5. Store back to memory
+        _mm_store_ss(&v[0], norm);
+        _mm_store_ss(&v[1], _mm_shuffle_ps(norm, norm, _MM_SHUFFLE(1, 1, 1, 1)));
+        _mm_store_ss(&v[2], _mm_shuffle_ps(norm, norm, _MM_SHUFFLE(2, 2, 2, 2)));
+    }
+    return length;
+#else
+    // Original scalar fallback for QVM compiler
+    float length, ilength;
+    length = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if (length)
+    {
+        ilength = 1 / (float)sqrt(length);
+        length *= ilength;
+        v[0] *= ilength;
+        v[1] *= ilength;
+        v[2] *= ilength;
+    }
+    return length;
+#endif
 }
 
 vec_t VectorNormalize2( const vec3_t v, vec3_t out) {
