@@ -613,9 +613,27 @@ void MakeNormalVectors( const vec3_t forward, vec3_t right, vec3_t up) {
 
 void VectorRotate( const vec3_t in, const vec3_t matrix[3], vec3_t out )
 {
-	out[0] = DotProduct( in, matrix[0] );
-	out[1] = DotProduct( in, matrix[1] );
-	out[2] = DotProduct( in, matrix[2] );
+#if defined(Q_HAS_SSE4_1)
+
+    __m128 v_in = _mm_set_ps(0.0f, in[2], in[1], in[0]);
+
+    __m128 row0 = _mm_set_ps(0.0f, matrix[0][2], matrix[0][1], matrix[0][0]);
+    __m128 row1 = _mm_set_ps(0.0f, matrix[1][2], matrix[1][1], matrix[1][0]);
+    __m128 row2 = _mm_set_ps(0.0f, matrix[2][2], matrix[2][1], matrix[2][0]);
+
+    __m128 dot0 = _mm_dp_ps(v_in, row0, 0x71);
+    __m128 dot1 = _mm_dp_ps(v_in, row1, 0x71);
+    __m128 dot2 = _mm_dp_ps(v_in, row2, 0x71);
+
+    _mm_store_ss(&out[0], dot0);
+    _mm_store_ss(&out[1], dot1);
+    _mm_store_ss(&out[2], dot2);
+#else
+    // QVM FALLBACK (Simple scalar math q3asm understands)
+    out[0] = in[0] * matrix[0][0] + in[1] * matrix[0][1] + in[2] * matrix[0][2];
+    out[1] = in[0] * matrix[1][0] + in[1] * matrix[1][1] + in[2] * matrix[1][2];
+    out[2] = in[0] * matrix[2][0] + in[1] * matrix[2][1] + in[2] * matrix[2][2];
+#endif
 }
 
 //============================================================================
