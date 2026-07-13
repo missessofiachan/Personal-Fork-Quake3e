@@ -814,8 +814,6 @@ Returns 1, 2, or 1 + 2
 */
 int BoxOnPlaneSide(vec3_t emins, vec3_t emaxs, struct cplane_s *p)
 {
-	float	dist[2];
-	int		sides, b, i;
 
 	// fast axial cases
 	if (p->type < 3)
@@ -827,7 +825,49 @@ int BoxOnPlaneSide(vec3_t emins, vec3_t emaxs, struct cplane_s *p)
 		return 3;
 	}
 
-	// general case
+	#if Q_HAS_SIMD
+	if (p->signbits < 8)
+	{
+		__m128 v_emins = _mm_loadu_ps(emins);
+		__m128 v_emaxs = _mm_loadu_ps(emaxs);
+		__m128 v_normal = _mm_loadu_ps(p->normal);
+
+		unsigned int m0 = (p->signbits & 1) ? 0xFFFFFFFF : 0;
+		unsigned int m1 = (p->signbits & 2) ? 0xFFFFFFFF : 0;
+		unsigned int m2 = (p->signbits & 4) ? 0xFFFFFFFF : 0;
+		__m128 mask = _mm_set_ps(0.0f, *(float*)&m2, *(float*)&m1, *(float*)&m0);
+
+		__m128 v_dist0 = _mm_or_ps(_mm_and_ps(mask, v_emins), _mm_andnot_ps(mask, v_emaxs));
+		__m128 v_dist1 = _mm_or_ps(_mm_and_ps(mask, v_emaxs), _mm_andnot_ps(mask, v_emins));
+
+		__m128 mul0 = _mm_mul_ps(v_normal, v_dist0);
+		__m128 mul1 = _mm_mul_ps(v_normal, v_dist1);
+
+		__m128 shuf0_1 = _mm_shuffle_ps(mul0, mul0, _MM_SHUFFLE(1, 1, 1, 1));
+		__m128 shuf0_2 = _mm_shuffle_ps(mul0, mul0, _MM_SHUFFLE(2, 2, 2, 2));
+		__m128 sum0 = _mm_add_ss(mul0, _mm_add_ss(shuf0_1, shuf0_2));
+
+		__m128 shuf1_1 = _mm_shuffle_ps(mul1, mul1, _MM_SHUFFLE(1, 1, 1, 1));
+		__m128 shuf1_2 = _mm_shuffle_ps(mul1, mul1, _MM_SHUFFLE(2, 2, 2, 2));
+		__m128 sum1 = _mm_add_ss(mul1, _mm_add_ss(shuf1_1, shuf1_2));
+
+		float dist0, dist1;
+		_mm_store_ss(&dist0, sum0);
+		_mm_store_ss(&dist1, sum1);
+
+		int sides = 0;
+		if (dist0 >= p->dist)
+			sides = 1;
+		if (dist1 < p->dist)
+			sides |= 2;
+
+		return sides;
+	}
+#endif
+
+// general case
+	float	dist[2];
+	int		sides, b, i;
 	dist[0] = dist[1] = 0;
 	if (p->signbits < 8) // >= 8: default case is original code (dist[0]=dist[1]=0)
 	{
@@ -838,13 +878,11 @@ int BoxOnPlaneSide(vec3_t emins, vec3_t emaxs, struct cplane_s *p)
 			dist[!b] += p->normal[i]*emins[i];
 		}
 	}
-
 	sides = 0;
 	if (dist[0] >= p->dist)
 		sides = 1;
 	if (dist[1] < p->dist)
 		sides |= 2;
-
 	return sides;
 }
 
