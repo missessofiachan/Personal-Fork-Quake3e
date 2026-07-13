@@ -953,6 +953,35 @@ void AddPointToBounds( const vec3_t v, vec3_t mins, vec3_t maxs ) {
 qboolean BoundsIntersect(const vec3_t mins, const vec3_t maxs,
 		const vec3_t mins2, const vec3_t maxs2)
 {
+	#ifndef Q3_VM
+    // 1. Load the bounds into registers (padding 4th slot with 0)
+    __m128 v_mins  = _mm_set_ps(0.0f, mins[2],  mins[1],  mins[0]);
+    __m128 v_maxs  = _mm_set_ps(0.0f, maxs[2],  maxs[1],  maxs[0]);
+    __m128 v_mins2 = _mm_set_ps(0.0f, mins2[2], mins2[1], mins2[0]);
+    __m128 v_maxs2 = _mm_set_ps(0.0f, maxs2[2], maxs2[1], maxs2[0]);
+
+    // 2. Perform simultaneous comparisons across X, Y, and Z axes
+    // cmplt: returns 0xFFFFFFFF if true, 0x0 if false per component
+    __m128 cmp1 = _mm_cmplt_ps(v_maxs, v_mins2);  // Is maxs < mins2?
+    __m128 cmp2 = _mm_cmpgt_ps(v_mins, v_maxs2);  // Is mins > maxs2?
+
+    // 3. Combine the comparison results using a bitwise OR
+    __m128 combined = _mm_or_ps(cmp1, cmp2);
+
+    // 4. Movemask extracts the most significant bit of each float slot 
+    // into a standard integer (slots 0, 1, 2 correspond to bits 0, 1, 2)
+    int mask = _mm_movemask_ps(combined);
+
+    // 5. If any of the lower 3 bits (value 1, 2, or 4) are set, an exclusion condition met.
+    // Masking with 7 (binary 0111) checks axes X, Y, and Z simultaneously.
+    if (mask & 7)
+    {
+        return qfalse; 
+    }
+
+    return qtrue;
+	#else
+    // Original scalar fallback for QVM
 	if ( maxs[0] < mins2[0] ||
 		maxs[1] < mins2[1] ||
 		maxs[2] < mins2[2] ||
@@ -965,9 +994,41 @@ qboolean BoundsIntersect(const vec3_t mins, const vec3_t maxs,
 
 	return qtrue;
 }
+#endif
+}
+
 
 qboolean BoundsIntersectSphere(const vec3_t mins, const vec3_t maxs,
 		const vec3_t origin, vec_t radius)
+		{
+#ifndef Q3_VM
+    // 1. Load bounds and origin (padding 4th slot with 0)
+    __m128 v_mins   = _mm_set_ps(0.0f, mins[2],   mins[1],   mins[0]);
+    __m128 v_maxs   = _mm_set_ps(0.0f, maxs[2],   maxs[1],   maxs[0]);
+    __m128 v_origin = _mm_set_ps(0.0f, origin[2], origin[1], origin[0]);
+
+    // 2. Broadcast the radius across all slots
+    __m128 v_radius = _mm_set1_ps(radius);
+
+    // 3. Expand the sphere origin out into a min/max bounding box
+    __m128 sphere_mins = _mm_sub_ps(v_origin, v_radius);
+    __m128 sphere_maxs = _mm_add_ps(v_origin, v_radius);
+
+    // 4. Simultaneous check: Is sphere completely outside the AABB?
+    __m128 cmp1 = _mm_cmpgt_ps(sphere_mins, v_maxs); // origin - radius > maxs
+    __m128 cmp2 = _mm_cmplt_ps(sphere_maxs, v_mins); // origin + radius < mins
+
+    // 5. Extract bitmask of the results
+    int mask = _mm_movemask_ps(_mm_or_ps(cmp1, cmp2));
+
+    // If any X, Y, or Z bits (lower 3 bits) are set, there is no intersection
+    if (mask & 7)
+    {
+        return qfalse;
+    }
+
+    return qtrue;
+#else
 {
 	if ( origin[0] - radius > maxs[0] ||
 		origin[0] + radius < mins[0] ||
@@ -980,6 +1041,7 @@ qboolean BoundsIntersectSphere(const vec3_t mins, const vec3_t maxs,
 	}
 
 	return qtrue;
+	#endif
 }
 
 qboolean BoundsIntersectPoint(const vec3_t mins, const vec3_t maxs,
