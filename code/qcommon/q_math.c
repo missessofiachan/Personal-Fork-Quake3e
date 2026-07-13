@@ -913,26 +913,41 @@ void ClearBounds( vec3_t mins, vec3_t maxs ) {
 }
 
 void AddPointToBounds( const vec3_t v, vec3_t mins, vec3_t maxs ) {
+#if Q_HAS_SIMD
+	__m128 pt = _mm_loadu_ps(v);
+	__m128 mn = _mm_loadu_ps(mins);
+	__m128 mx = _mm_loadu_ps(maxs);
+
+	__m128 new_mn = _mm_min_ps(pt, mn);
+	__m128 new_mx = _mm_max_ps(pt, mx);
+
+	_mm_store_ss(&mins[0], new_mn);
+	_mm_store_ss(&mins[1], _mm_shuffle_ps(new_mn, new_mn, _MM_SHUFFLE(1, 1, 1, 1)));
+	_mm_store_ss(&mins[2], _mm_shuffle_ps(new_mn, new_mn, _MM_SHUFFLE(2, 2, 2, 2)));
+
+	_mm_store_ss(&maxs[0], new_mx);
+	_mm_store_ss(&maxs[1], _mm_shuffle_ps(new_mx, new_mx, _MM_SHUFFLE(1, 1, 1, 1)));
+	_mm_store_ss(&maxs[2], _mm_shuffle_ps(new_mx, new_mx, _MM_SHUFFLE(2, 2, 2, 2)));
+#else
 	if ( v[0] < mins[0] ) {
 		mins[0] = v[0];
 	}
-	if ( v[0] > maxs[0]) {
+	if ( v[0] > maxs[0] ) {
 		maxs[0] = v[0];
 	}
-
 	if ( v[1] < mins[1] ) {
 		mins[1] = v[1];
 	}
-	if ( v[1] > maxs[1]) {
+	if ( v[1] > maxs[1] ) {
 		maxs[1] = v[1];
 	}
-
 	if ( v[2] < mins[2] ) {
 		mins[2] = v[2];
 	}
-	if ( v[2] > maxs[2]) {
+	if ( v[2] > maxs[2] ) {
 		maxs[2] = v[2];
 	}
+#endif
 }
 
 qboolean BoundsIntersect(const vec3_t mins, const vec3_t maxs,
