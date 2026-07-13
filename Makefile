@@ -558,6 +558,7 @@ else
 
   ifeq ($(ARCH),x86_64)
     ARCHEXT = .x64
+    OPTIMIZE += -mavx2
   else
   ifeq ($(ARCH),x86)
     OPTIMIZE += -march=i586 -mtune=i686

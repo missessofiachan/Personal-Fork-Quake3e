@@ -26,7 +26,15 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // doesn't understand static functions though, so we only want them in
 // one file. That's what this is about.
 #ifdef Q3_VM
-#define __Q3_VM_MATH
+#define Q_HAS_SIMD 1
+#include <smmintrin.h> // Intel SSE4.1 intrinsics
+#include <immintrin.h> // Required for FMA and advanced intrinsics
+#define Q_HAS_SSE4_1 1
+#else
+#if defined(__SSE4_1__)
+#include <smmintrin.h>
+#define Q_HAS_SSE4_1 1
+#endif
 #endif
 
 #include "q_shared.h"
@@ -244,27 +252,95 @@ signed short ClampShort( int i ) {
 
 
 // this isn't a real cheap function to call!
-int DirToByte( vec3_t dir ) {
-	int		i, best;
-	float	d, bestd;
+int DirToByte(vec3_t dir)
+{
+#if defined(Q_HAS_SSE4_1)
+    int i, best;
+    float bestd;
 
-	if ( !dir ) {
-		return 0;
-	}
+    if (!dir)
+    {
+        return 0;
+    }
 
-	bestd = 0;
-	best = 0;
-	for (i=0 ; i<NUMVERTEXNORMALS ; i++)
-	{
-		d = DotProduct (dir, bytedirs[i]);
-		if (d > bestd)
-		{
-			bestd = d;
-			best = i;
-		}
-	}
+    bestd = 0.0f;
+    best = 0;
 
-	return best;
+    // 1. Broadcast 'dir' components into a SIMD register: [0, dir[2], dir[1], dir[0]]
+    __m128 v_dir = _mm_set_ps(0.0f, dir[2], dir[1], dir[0]);
+
+    // Track the best distances in a SIMD register initialized to 0
+    __m128 v_bestd = _mm_setzero_ps(); 
+
+    // 2. Process 4 vectors at a time. 
+    // Note: 162 isn't perfectly divisible by 4 (162 / 4 = 40.5).
+    // We loop up to 160 safely using SIMD, then handle the last 2 scalars at the end.
+    for (i = 0; i < 160; i += 4)
+    {
+        // Load 4 consecutive vec3s from the bytedirs table
+        __m128 b0 = _mm_set_ps(0.0f, bytedirs[i+0][2], bytedirs[i+0][1], bytedirs[i+0][0]);
+        __m128 b1 = _mm_set_ps(0.0f, bytedirs[i+1][2], bytedirs[i+1][1], bytedirs[i+1][0]);
+        __m128 b2 = _mm_set_ps(0.0f, bytedirs[i+2][2], bytedirs[i+2][1], bytedirs[i+2][0]);
+        __m128 b3 = _mm_set_ps(0.0f, bytedirs[i+3][2], bytedirs[i+3][1], bytedirs[i+3][0]);
+
+        // Calculate 4 dot products instantly
+        // 0x71 mask: multiply X, Y, Z components and store the result in the lowest slot (index 0)
+        __m128 dot0 = _mm_dp_ps(v_dir, b0, 0x71);
+        __m128 dot1 = _mm_dp_ps(v_dir, b1, 0x71);
+        __m128 dot2 = _mm_dp_ps(v_dir, b2, 0x71);
+        __m128 dot3 = _mm_dp_ps(v_dir, b3, 0x71);
+
+        // Pack the 4 dot products into a single SIMD register: [dot3, dot2, dot1, dot0]
+        __m128 dots = _mm_unpacklo_ps(_mm_unpacklo_ps(dot0, dot2), _mm_unpacklo_ps(dot1, dot3));
+
+        // Scalar extraction out of the packed register to update the best match
+        // (Keeping the conditional updates scalar prevents complex mask generation errors)
+        float d0 = _mm_cvtss_f32(dots);
+        float d1 = _mm_cvtss_f32(_mm_shuffle_ps(dots, dots, _MM_SHUFFLE(1, 1, 1, 1)));
+        float d2 = _mm_cvtss_f32(_mm_shuffle_ps(dots, dots, _MM_SHUFFLE(2, 2, 2, 2)));
+        float d3 = _mm_cvtss_f32(_mm_shuffle_ps(dots, dots, _MM_SHUFFLE(3, 3, 3, 3)));
+
+        if (d0 > bestd) { bestd = d0; best = i + 0; }
+        if (d1 > bestd) { bestd = d1; best = i + 1; }
+        if (d2 > bestd) { bestd = d2; best = i + 2; }
+        if (d3 > bestd) { bestd = d3; best = i + 3; }
+    }
+
+    // 3. Clean up loop remainder (elements 160 and 161)
+    for (; i < NUMVERTEXNORMALS; i++)
+    {
+        float d = dir[0]*bytedirs[i][0] + dir[1]*bytedirs[i][1] + dir[2]*bytedirs[i][2];
+        if (d > bestd)
+        {
+            bestd = d;
+            best = i;
+        }
+    }
+
+    return best;
+#else
+    int i, best;
+    float d, bestd;
+
+    if (!dir)
+    {
+        return 0;
+    }
+
+    bestd = 0.0f;
+    best = 0;
+    for (i = 0; i < NUMVERTEXNORMALS; i++)
+    {
+        d = dir[0]*bytedirs[i][0] + dir[1]*bytedirs[i][1] + dir[2]*bytedirs[i][2];
+        if (d > bestd)
+        {
+            bestd = d;
+            best = i;
+        }
+    }
+
+    return best;
+#endif
 }
 
 void ByteToDir( int b, vec3_t dir ) {
