@@ -490,6 +490,24 @@ CM_BoundsIntersect
 */
 qboolean CM_BoundsIntersect( const vec3_t mins, const vec3_t maxs, const vec3_t mins2, const vec3_t maxs2 )
 {
+#if defined(__SSE__) && !defined(Q3_VM)
+	__m128 max1 = _mm_set_ps( 0.0f, maxs[2], maxs[1], maxs[0] );
+	__m128 min2 = _mm_set_ps( 0.0f, mins2[2], mins2[1], mins2[0] );
+	__m128 min1 = _mm_set_ps( 0.0f, mins[2], mins[1], mins[0] );
+	__m128 max2 = _mm_set_ps( 0.0f, maxs2[2], maxs2[1], maxs2[0] );
+	__m128 eps  = _mm_set1_ps( BOUNDS_CLIP_EPSILON );
+
+	__m128 min2_eps = _mm_sub_ps( min2, eps );
+	__m128 max2_eps = _mm_add_ps( max2, eps );
+
+	__m128 cmp1 = _mm_cmplt_ps( max1, min2_eps );
+	__m128 cmp2 = _mm_cmpgt_ps( min1, max2_eps );
+
+	__m128 combined = _mm_or_ps( cmp1, cmp2 );
+	int mask = _mm_movemask_ps( combined ) & 0x7;
+
+	return ( mask == 0 );
+#else
 	if (maxs[0] < mins2[0] - BOUNDS_CLIP_EPSILON ||
 		maxs[1] < mins2[1] - BOUNDS_CLIP_EPSILON ||
 		maxs[2] < mins2[2] - BOUNDS_CLIP_EPSILON ||
@@ -501,6 +519,7 @@ qboolean CM_BoundsIntersect( const vec3_t mins, const vec3_t maxs, const vec3_t 
 	}
 
 	return qtrue;
+#endif
 }
 
 

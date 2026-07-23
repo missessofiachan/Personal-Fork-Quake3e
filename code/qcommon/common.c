@@ -37,6 +37,48 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "../client/keys.h"
 
+#ifdef USE_MIMALLOC_ZONE
+#if defined(__has_include) && __has_include(<mimalloc.h>)
+#include <mimalloc.h>
+#else
+typedef enum mi_option_e {
+  mi_option_show_errors,
+  mi_option_show_stats,
+  mi_option_verbose,
+  mi_option_eager_commit,
+  mi_option_arena_eager_commit,
+  mi_option_purge_decommits,
+  mi_option_allow_large_os_pages,
+  mi_option_reserve_huge_os_pages,
+  mi_option_reserve_huge_os_pages_at,
+  mi_option_reserve_os_memory,
+  mi_option_segment_build_reset,
+  mi_option_share_decommit,
+  mi_option_use_numa_nodes,
+  mi_option_limit_os_alloc,
+  mi_option_os_tag,
+  mi_option_max_errors,
+  mi_option_max_warnings,
+  mi_option_max_segment_reclaim,
+  mi_option_destroy_on_exit,
+  mi_option_arena_reserve,
+  mi_option_arena_purge_mult,
+  mi_option_purge_delay,
+  mi_option_use_os_fallback,
+  mi_option_large_os_pages
+} mi_option_t;
+
+void* mi_malloc(size_t size);
+void  mi_free(void* p);
+void  mi_option_set(mi_option_t option, long value);
+void  mi_stats_print(void* out);
+#endif
+
+static void Com_MimallocStats_f( void ) {
+	mi_stats_print( NULL );
+}
+#endif
+
 const int demo_protocols[] = { 66, 67, OLD_PROTOCOL_VERSION, NEW_PROTOCOL_VERSION, 0 };
 
 #define USE_MULTI_SEGMENT // allocate additional zone segments on demand
@@ -1291,6 +1333,11 @@ void Z_Free( void *ptr )
 #endif
 	}
 
+#ifdef USE_MIMALLOC_ZONE
+	mi_free( ptr );
+	return;
+#endif
+
 	block = (memblock_t *)((byte *)ptr - sizeof( memblock_t ));
 
 #ifdef USE_ZONE_ID
@@ -1539,8 +1586,14 @@ void *Z_Malloc( size_t size ) {
 #endif
 	void	*buf;
 
-  //Z_CheckHeap ();	// DEBUG
-
+#ifdef USE_MIMALLOC_ZONE
+	buf = mi_malloc( size );
+	if ( !buf ) {
+		Com_Error( ERR_FATAL, "Z_Malloc: Allocation bounds error for %zu bytes", size );
+	}
+	Com_Memset( buf, 0, size );
+	return buf;
+#else
 #ifdef ZONE_DEBUG
 	buf = Z_TagMallocDebug( size, TAG_GENERAL, label, file, line );
 #else
@@ -1549,6 +1602,7 @@ void *Z_Malloc( size_t size ) {
 	Com_Memset( buf, 0, size );
 
 	return buf;
+#endif
 }
 
 
@@ -2040,6 +2094,10 @@ Com_InitZoneMemory
 =================
 */
 static void Com_InitZoneMemory( void ) {
+#ifdef USE_MIMALLOC_ZONE
+	mi_option_set( mi_option_large_os_pages, 1 );
+	mi_option_set( mi_option_eager_commit, 1 );
+#endif
 	int		mainZoneSize;
 	cvar_t	*cv;
 
@@ -3788,6 +3846,9 @@ void Com_Init( char *commandLine ) {
 
 	Com_InitZoneMemory();
 	Cmd_Init();
+#ifdef USE_MIMALLOC_ZONE
+	Cmd_AddCommand( "mi_stats", Com_MimallocStats_f );
+#endif
 
 	// get the developer cvar set as early as possible
 	Com_StartupVariable( "developer" );
