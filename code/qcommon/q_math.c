@@ -1125,16 +1125,31 @@ vec_t VectorNormalize(vec3_t v)
 #endif
 }
 
-vec_t VectorNormalize2( const vec3_t v, vec3_t out) {
+vec_t VectorNormalize2( const vec3_t v, vec3_t out ) {
+#ifndef Q3_VM
+	__m128 x = _mm_set_ps(0.0f, v[2], v[1], v[0]);
+	__m128 sum = _mm_dp_ps(x, x, 0x77);
+	float length;
+	_mm_store_ss(&length, sum);
+	if (length > 0.0f) {
+		__m128 sqrt_len = _mm_sqrt_ps(sum);
+		_mm_store_ss(&length, sqrt_len);
+		__m128 norm = _mm_div_ps(x, sqrt_len);
+		_mm_store_ss(&out[0], norm);
+		_mm_store_ss(&out[1], _mm_shuffle_ps(norm, norm, _MM_SHUFFLE(1, 1, 1, 1)));
+		_mm_store_ss(&out[2], _mm_shuffle_ps(norm, norm, _MM_SHUFFLE(2, 2, 2, 2)));
+	} else {
+		VectorClear( out );
+	}
+	return length;
+#else
 	float	length, ilength;
 
 	length = v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
 
 	if (length)
 	{
-		/* writing it this way allows gcc to recognize that rsqrt can be used */
 		ilength = 1/(float)sqrt (length);
-		/* sqrt(length) = length * (1 / sqrt(length)) */
 		length *= ilength;
 		out[0] = v[0]*ilength;
 		out[1] = v[1]*ilength;
@@ -1144,15 +1159,32 @@ vec_t VectorNormalize2( const vec3_t v, vec3_t out) {
 	}
 		
 	return length;
-
+#endif
 }
 
-void _VectorMA( const vec3_t veca, float scale, const vec3_t vecb, vec3_t vecc) {
-	vecc[0] = veca[0] + scale*vecb[0];
-	vecc[1] = veca[1] + scale*vecb[1];
-	vecc[2] = veca[2] + scale*vecb[2];
-}
+void _VectorMA(const vec3_t veca, float scale, const vec3_t vecb, vec3_t vecc)
+{
+#ifndef Q3_VM
+    // 1. Load veca and vecb (padding 4th element with 0.0f)
+    __m128 a = _mm_set_ps(0.0f, veca[2], veca[1], veca[0]);
+    __m128 b = _mm_set_ps(0.0f, vecb[2], vecb[1], vecb[0]);
 
+    // 2. Broadcast the single scalar scale float across all 4 slots
+    __m128 s = _mm_set1_ps(scale);
+
+    // 3. Multiply and Add: (b * s) + a
+    __m128 res = _mm_add_ps(_mm_mul_ps(b, s), a);
+
+    // 4. Stream back to the vecc destination array safely
+    _mm_store_ss(&vecc[0], res);
+    _mm_store_ss(&vecc[1], _mm_shuffle_ps(res, res, _MM_SHUFFLE(1, 1, 1, 1)));
+    _mm_store_ss(&vecc[2], _mm_shuffle_ps(res, res, _MM_SHUFFLE(2, 2, 2, 2)));
+#else
+    vecc[0] = veca[0] + scale * vecb[0];
+    vecc[1] = veca[1] + scale * vecb[1];
+    vecc[2] = veca[2] + scale * vecb[2];
+#endif
+}
 
 vec_t _DotProduct( const vec3_t v1, const vec3_t v2 ) {
 	return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2];

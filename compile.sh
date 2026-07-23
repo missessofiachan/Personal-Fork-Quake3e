@@ -86,9 +86,14 @@ fi
 # Determine how to run commands (directly or via distrobox)
 USE_DISTROBOX=false
 if [ "$INSIDE_CONTAINER" = false ]; then
-    if command -v distrobox &> /dev/null; then
-        # Safely check if the target container exists
-        if distrobox list 2>/dev/null | grep -q "$TARGET_CONTAINER"; then
+    # Direct check via Podman or Docker to prevent formatting/color issue in distrobox list
+    if command -v podman &>/dev/null && podman container exists "$TARGET_CONTAINER" 2>/dev/null; then
+        USE_DISTROBOX=true
+    elif command -v docker &>/dev/null && docker ps -a --format '{{.Names}}' | grep -q "^${TARGET_CONTAINER}$"; then
+        USE_DISTROBOX=true
+    elif command -v distrobox &>/dev/null; then
+        # Fallback with ANSI escape code stripping
+        if distrobox list 2>/dev/null | sed -R "s/\x1B\[[0-9;]*[mK]//g" | grep -q "$TARGET_CONTAINER"; then
             USE_DISTROBOX=true
         fi
     fi
@@ -167,7 +172,7 @@ fi
 # Start build timer
 START_TIME=$(date +%s)
 
-# 3. Build the project with make
+# 4. Build the project with make
 echo -e "${GREEN}Compiling quake3e with ${NUM_JOBS} parallel jobs...${NC}"
 if ! run_build_cmd make -j"${NUM_JOBS}"; then
     echo -e "${RED}Build failed! Try a clean build:${NC}" >&2
@@ -178,9 +183,7 @@ fi
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
 
-# Locate the compiled client binary (e.g. build/release-linux-x86_64/quake3e.x64)
-# The Makefile uses: build/release-<platform>-<arch>/quake3e<archext>
-# Exclude the dedicated server (quake3e.ded*) and renderer shared libs (*.so)
+# Locate the compiled client binary
 CLIENT_BIN=$(find "$BUILD_DIR" -type f -name "quake3e*" -executable \
     ! -name "quake3e.ded*" ! -name "*.so" -print -quit 2>/dev/null || true)
 
@@ -192,7 +195,7 @@ fi
 echo -e "${GREEN}Build complete in ${ELAPSED}s! Executable located at:${NC}"
 echo -e "${BLUE}  ${CLIENT_BIN}${NC}"
 
-# 4. Optional Auto-Run
+# 5. Optional Auto-Run
 if [ "$RUN_AFTER_BUILD" = true ]; then
     echo -e "${GREEN}Launching quake3e with arguments: ${RUN_ARGS[*]:-<none>}...${NC}"
     "./${CLIENT_BIN}" +set fs_basepath "${Q3_PATH}" "${RUN_ARGS[@]}"

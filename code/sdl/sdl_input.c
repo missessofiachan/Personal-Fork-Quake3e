@@ -67,6 +67,16 @@ static cvar_t *cl_consoleKeys;
 static int in_eventTime = 0;
 static qboolean mouse_focus;
 
+static float in_mouseAccumX = 0.0f;
+static float in_mouseAccumY = 0.0f;
+
+void IN_GetAndClearMouseAccum( float *outX, float *outY ) {
+	*outX = in_mouseAccumX;
+	*outY = in_mouseAccumY;
+	in_mouseAccumX = 0.0f;
+	in_mouseAccumY = 0.0f;
+}
+
 #define CTRL(a) ((a)-'a'+1)
 
 /*
@@ -1250,6 +1260,8 @@ void HandleEvents( void )
 				{
 					if( !e.motion.xrel && !e.motion.yrel )
 						break;
+					in_mouseAccumX += e.motion.xrel;
+					in_mouseAccumY += e.motion.yrel;
 					Com_QueueEvent( in_eventTime, SE_MOUSE, e.motion.xrel, e.motion.yrel, 0, NULL );
 				}
 				break;

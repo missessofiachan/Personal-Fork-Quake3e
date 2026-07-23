@@ -558,7 +558,7 @@ else
 
   ifeq ($(ARCH),x86_64)
     ARCHEXT = .x64
-    OPTIMIZE += -mavx2
+    OPTIMIZE += -mavx2 -mfma
   else
   ifeq ($(ARCH),x86)
     OPTIMIZE += -march=i586 -mtune=i686
@@ -596,7 +596,11 @@ else
   LDFLAGS += -Wl,--gc-sections -fvisibility=hidden
 
   ifeq ($(USE_SDL),1)
-    BASE_CFLAGS += $(SDL_INCLUDE)
+    ifeq ($(USE_LOCAL_HEADERS),1)
+      BASE_CFLAGS += -I$(SDLHDIR) -I$(MOUNT_DIR)/code/libsdl/include
+    else
+      BASE_CFLAGS += $(SDL_INCLUDE)
+    endif
     CLIENT_LDFLAGS = $(SDL_LIBS)
   else
     BASE_CFLAGS += $(X11_INCLUDE)

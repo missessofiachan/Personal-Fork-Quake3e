@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 static unsigned frame_msec;
 static int old_com_frameTime;
+cvar_t *in_subTickMouse;
 
 /*
 ===============================================================================
@@ -442,16 +443,38 @@ static void CL_MouseMove( usercmd_t *cmd )
 {
 	float mx, my;
 
-	// allow mouse smoothing
-	if (m_filter->integer)
+	if ( in_subTickMouse && in_subTickMouse->integer )
 	{
-		mx = (cl.mouseDx[0] + cl.mouseDx[1]) * 0.5f;
-		my = (cl.mouseDy[0] + cl.mouseDy[1]) * 0.5f;
+		float rawX, rawY;
+		IN_GetAndClearMouseAccum( &rawX, &rawY );
+
+		if ( m_filter->integer )
+		{
+			static float prevX = 0.0f, prevY = 0.0f;
+			mx = ( rawX + prevX ) * 0.5f;
+			my = ( rawY + prevY ) * 0.5f;
+			prevX = rawX;
+			prevY = rawY;
+		}
+		else
+		{
+			mx = rawX;
+			my = rawY;
+		}
 	}
 	else
 	{
-		mx = cl.mouseDx[cl.mouseIndex];
-		my = cl.mouseDy[cl.mouseIndex];
+		// allow mouse smoothing
+		if (m_filter->integer)
+		{
+			mx = (cl.mouseDx[0] + cl.mouseDx[1]) * 0.5f;
+			my = (cl.mouseDy[0] + cl.mouseDy[1]) * 0.5f;
+		}
+		else
+		{
+			mx = cl.mouseDx[cl.mouseIndex];
+			my = cl.mouseDy[cl.mouseIndex];
+		}
 	}
 
 	cl.mouseIndex ^= 1;
@@ -1004,6 +1027,9 @@ void CL_InitInput( void ) {
 
 	cl_showMouseRate = Cvar_Get( "cl_showMouseRate", "0", 0 );
 	Cvar_SetDescription( cl_showMouseRate, "Prints mouse acceleration info when 'cl_mouseAccel' has a value set (rate of mouse samples per frame)." );
+
+	in_subTickMouse = Cvar_Get( "in_subTickMouse", "1", CVAR_ARCHIVE );
+	Cvar_SetDescription( in_subTickMouse, "Enable sub-tick floating-point mouse motion accumulation for raw mouse input." );
 
 	m_pitch = Cvar_Get( "m_pitch", "0.022", CVAR_ARCHIVE_ND );
 	Cvar_SetDescription( m_pitch, "Set the up and down movement distance of the player in relation to how much the mouse moves." );

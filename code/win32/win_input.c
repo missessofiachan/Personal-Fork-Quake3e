@@ -36,6 +36,18 @@ typedef struct {
 
 static WinMouseVars_t s_wmv;
 
+static float in_winMouseAccumX = 0.0f;
+static float in_winMouseAccumY = 0.0f;
+
+#ifndef USE_SDL
+void IN_GetAndClearMouseAccum( float *outX, float *outY ) {
+	*outX = in_winMouseAccumX;
+	*outY = in_winMouseAccumY;
+	in_winMouseAccumX = 0.0f;
+	in_winMouseAccumY = 0.0f;
+}
+#endif
+
 static POINT window_center;
 static POINT client_center;
 
@@ -886,6 +898,8 @@ void IN_RawMouseEvent( LPARAM lParam )
 		return;
 
 	if ( u.raw.data.mouse.lLastX || u.raw.data.mouse.lLastY ) {
+		in_winMouseAccumX += u.raw.data.mouse.lLastX;
+		in_winMouseAccumY += u.raw.data.mouse.lLastY;
 		Sys_QueEvent( g_wv.sysMsgTime, SE_MOUSE, u.raw.data.mouse.lLastX, u.raw.data.mouse.lLastY, 0, NULL );
 	}
 

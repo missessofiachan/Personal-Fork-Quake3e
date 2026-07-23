@@ -559,6 +559,9 @@ void CIN_SetExtents (int handle, int x, int y, int w, int h);
 void CIN_UploadCinematic(int handle);
 void CIN_CloseAllVideos(void);
 
+void IN_GetAndClearMouseAccum( float *outX, float *outY );
+extern cvar_t *in_subTickMouse;
+
 //
 // cl_cgame.c
 //
