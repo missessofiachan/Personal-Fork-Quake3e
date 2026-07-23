@@ -24,6 +24,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "snd_local.h"
 
+#if defined(__SSE2__) && !defined(Q3_VM)
+#include <emmintrin.h>
+#endif
+
 static portable_samplepair_t paintbuffer[PAINTBUFFER_SIZE];
 static int snd_vol;
 
@@ -34,19 +38,35 @@ short	*snd_out;
 
 void S_WriteLinearBlastStereo16( void )
 {
-	int		i;
-	int		val;
-	int		*src = snd_p;
-	short	*dst = snd_out;
-	for ( i = 0; i < snd_linear_count; i++, src++, dst++ )
+	int i = 0;
+
+#if defined(__SSE2__) && !defined(Q3_VM)
+	// Process 8 audio samples at a time (4 stereo pairs) concurrently using 128-bit SSE
+	for (; i + 7 < snd_linear_count; i += 8)
 	{
-		val = *src>>8;
+		__m128i in_lo = _mm_loadu_si128((const __m128i*)&snd_p[i]);
+		__m128i in_hi = _mm_loadu_si128((const __m128i*)&snd_p[i + 4]);
+
+		__m128i shifted_lo = _mm_srai_epi32(in_lo, 8);
+		__m128i shifted_hi = _mm_srai_epi32(in_hi, 8);
+
+		// Pack 32-bit integers down to 16-bit shorts with hardware saturation clamping
+		__m128i packed = _mm_packs_epi32(shifted_lo, shifted_hi);
+
+		_mm_storeu_si128((__m128i*)&snd_out[i], packed);
+	}
+#endif
+
+	// Scalar fallback for remaining samples
+	for (; i < snd_linear_count; i++)
+	{
+		int val = snd_p[i] >> 8;
 		if ( val > 32767 )
-			*dst = 32767;
+			snd_out[i] = 32767;
 		else if ( val < -32768 )
-			*dst = -32768;
+			snd_out[i] = -32768;
 		else
-			*dst = val;
+			snd_out[i] = val;
 	}
 }
 
