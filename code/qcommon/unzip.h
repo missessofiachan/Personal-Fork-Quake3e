@@ -297,6 +297,8 @@ extern int unzCloseCurrentFile (unzFile file);
 												
 extern int unzReadCurrentFile (unzFile file, void* buf, unsigned len);
 
+extern int unzSeek (unzFile file, unsigned int offset, int origin);
+
 /*
   Read unsigned chars from the current file (opened by unzOpenCurrentFile)
   buf contain buffer where data must be copied

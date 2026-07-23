@@ -2145,6 +2145,55 @@ extern long unztell (unzFile file)
 	return (long)pfile_in_zip_read_info->stream.total_out;
 }
 
+/*
+  Seek in current uncompressed stream intelligently using window jumps
+*/
+extern int unzSeek( unzFile file, unsigned int offset, int origin ) {
+	unz_s* s;
+	file_in_zip_read_info_s* pfile_in_zip_read_info;
+	unsigned long target_pos;
+	unsigned long current_pos;
+	char dummy[4096];
+
+	if ( file == NULL )
+		return UNZ_PARAMERROR;
+	s = (unz_s*)file;
+	pfile_in_zip_read_info = s->pfile_in_zip_read;
+
+	if ( pfile_in_zip_read_info == NULL )
+		return UNZ_PARAMERROR;
+
+	current_pos = pfile_in_zip_read_info->stream.total_out;
+
+	if ( origin == SEEK_SET ) {
+		target_pos = offset;
+	} else if ( origin == SEEK_CUR ) {
+		target_pos = current_pos + offset;
+	} else {
+		return UNZ_PARAMERROR;
+	}
+
+	if ( target_pos < current_pos ) {
+		int err = unzOpenCurrentFile( file );
+		if ( err != UNZ_OK ) return err;
+		current_pos = 0;
+	}
+
+	while ( current_pos < target_pos ) {
+		unsigned long bytes_to_skip = target_pos - current_pos;
+		if ( bytes_to_skip > sizeof( dummy ) ) {
+			bytes_to_skip = sizeof( dummy );
+		}
+		int read = unzReadCurrentFile( file, dummy, (unsigned int)bytes_to_skip );
+		if ( read <= 0 ) {
+			return UNZ_END_OF_LIST_OF_FILE;
+		}
+		current_pos += read;
+	}
+
+	return UNZ_OK;
+}
+
 
 /*
   return 1 if the end of file was reached, 0 elsewhere 

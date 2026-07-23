@@ -32,6 +32,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "q_shared.h"
 #include "qcommon.h"
 #include "unzip.h"
+#if defined(__AVX2__) && !defined(Q3_VM)
+#include <immintrin.h>
+#endif
 
 /*
 =============================================================================
@@ -226,7 +229,7 @@ static const unsigned pak_checksums[] = {
 #define MAX_CACHED_HANDLES 384
 
 #define MAX_ZPATH			256
-#define MAX_FILEHASH_SIZE	4096
+#define MAX_FILEHASH_SIZE	32768
 
 typedef struct fileInPack_s {
 	char					*name;		// name of the file
@@ -545,13 +548,108 @@ Fix things up differently for win/unix/mac
 ====================
 */
 static void FS_ReplaceSeparators( char *path ) {
-	char	*s;
+	char *src = path;
+	char *dst = path;
+	char last = 0;
 
-	for ( s = path ; *s ; s++ ) {
-		if ( *s == PATH_SEP_FOREIGN ) {
-			*s = PATH_SEP;
+	if ( !path ) {
+		return;
+	}
+
+	while ( *src ) {
+		char c = *src++;
+		if ( c == PATH_SEP_FOREIGN ) {
+			c = PATH_SEP;
+		}
+		if ( c == PATH_SEP && last == PATH_SEP ) {
+			continue; // collapse duplicate separators in O(N) single-pass
+		}
+		*dst++ = c;
+		last = c;
+	}
+	*dst = '\0';
+}
+
+/*
+===========
+FS_FileCompare
+
+Do a binary check of two files, return qfalse if different, qtrue if equal
+===========
+*/
+qboolean FS_FileCompare( const char *s1, const char *s2 ) {
+	FILE *f1, *f2;
+	long len1, len2;
+	byte *b1, *b2;
+	long i = 0;
+	qboolean equal = qtrue;
+
+	f1 = fopen( s1, "rb" );
+	if ( !f1 ) return qfalse;
+
+	f2 = fopen( s2, "rb" );
+	if ( !f2 ) {
+		fclose( f1 );
+		return qfalse;
+	}
+
+	fseek( f1, 0, SEEK_END );
+	len1 = ftell( f1 );
+	fseek( f1, 0, SEEK_SET );
+
+	fseek( f2, 0, SEEK_END );
+	len2 = ftell( f2 );
+	fseek( f2, 0, SEEK_SET );
+
+	if ( len1 != len2 ) {
+		fclose( f1 );
+		fclose( f2 );
+		return qfalse;
+	}
+
+	b1 = Z_Malloc( len1 );
+	if ( fread( b1, 1, len1, f1 ) != (size_t)len1 ) {
+		Z_Free( b1 );
+		fclose( f1 );
+		fclose( f2 );
+		return qfalse;
+	}
+	fclose( f1 );
+
+	b2 = Z_Malloc( len2 );
+	if ( fread( b2, 1, len2, f2 ) != (size_t)len2 ) {
+		Z_Free( b1 );
+		Z_Free( b2 );
+		fclose( f2 );
+		return qfalse;
+	}
+	fclose( f2 );
+
+#if defined(__AVX2__) && !defined(Q3_VM)
+	for ( ; i + 31 < len1; i += 32 ) {
+		__m256i v1 = _mm256_loadu_si256( (const __m256i*)&b1[i] );
+		__m256i v2 = _mm256_loadu_si256( (const __m256i*)&b2[i] );
+		__m256i cmp = _mm256_cmpeq_epi8( v1, v2 );
+		unsigned int mask = _mm256_movemask_epi8( cmp );
+		if ( mask != 0xFFFFFFFF ) {
+			equal = qfalse;
+			break;
 		}
 	}
+#endif
+
+	if ( equal ) {
+		for ( ; i < len1; i++ ) {
+			if ( b1[i] != b2[i] ) {
+				equal = qfalse;
+				break;
+			}
+		}
+	}
+
+	Z_Free( b1 );
+	Z_Free( b2 );
+	return equal;
 }
 
 
