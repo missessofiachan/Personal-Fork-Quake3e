@@ -147,6 +147,9 @@ static void CMod_LoadSubmodels( const lump_t *l ) {
 		{	// spread the mins / maxs by a pixel
 			out->mins[j] = LittleFloat (in->mins[j]) - 1;
 			out->maxs[j] = LittleFloat (in->maxs[j]) + 1;
+			if (out->mins[j] > out->maxs[j]) {
+				Com_Error( ERR_DROP, "%s: inverted model bounds in submodel %i", __func__, i );
+			}
 		}
 
 		if ( i == 0 ) {
